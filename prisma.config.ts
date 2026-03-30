@@ -9,7 +9,8 @@ export default defineConfig({
     path: "prisma/migrations",
   },
   datasource: {
-    url: process.env["DATABASE_URL"],
-    // directUrl: process.env["DIRECT_URL"],
+    // In Prisma v7, the CLI uses the `url` defined here (which replaces the old `directUrl` functionality). 
+    // Your actual runtime application relies on `DATABASE_URL` via the pg adapter in `lib/db.ts`.
+    url: process.env["DIRECT_URL"] || process.env["DATABASE_URL"],
   },
-});
+}); 0
