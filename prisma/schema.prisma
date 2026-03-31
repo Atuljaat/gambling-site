@@ -7,18 +7,35 @@ datasource db {
   provider  = "postgresql"
 }
 
+// --- Enums ---
+
+enum SecretStatus {
+  ACTIVE
+  REVEALED
+}
+
+enum MineGameStatus {
+  ACTIVE
+  CASHED_OUT
+  BUSTED
+}
+
+// --- Models ---
+
 model User {
-  id            String        @id
+  id            String         @id
   name          String
-  email         String        @unique
+  email         String         @unique
   emailVerified Boolean
   image         String?
-  balance       Float         @default(0)
+  balance       Float          @default(0)
   createdAt     DateTime
   updatedAt     DateTime
   sessions      Session[]
   accounts      Account[]
   transactions  Transaction[]
+  serverSecrets ServerSecret[]
+  mineGames     MineGame[]
 
   @@map("user")
 }
@@ -83,4 +100,41 @@ model Transaction {
   @@map("transaction")
   @@index([userId])
   @@index([createdAt])
+}
+
+model ServerSecret {
+  id           String       @id @default(cuid())
+  userId       String
+  user         User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+  serverSecret String
+  status       SecretStatus @default(ACTIVE)
+  currentOunce Int          @default(1)
+  createdAt    DateTime     @default(now())
+  revealedAt   DateTime?
+  mineGames    MineGame[]
+
+  @@map("server_secret")
+  @@index([userId, status])
+}
+
+model MineGame {
+  id                String         @id @default(cuid())
+  userId            String
+  user              User           @relation(fields: [userId], references: [id], onDelete: Cascade)
+  serverSecretId    String
+  serverSecret      ServerSecret   @relation(fields: [serverSecretId], references: [id])
+  clientSecret      String
+  ounce             Int
+  betAmount         Float
+  mineCount         Int
+  minePositions     Json           // Int[] — generated mine positions (0-24)
+  revealedCells     Json           @default("[]") // Int[] — cells the user has revealed
+  status            MineGameStatus @default(ACTIVE)
+  currentMultiplier Float          @default(1.0)
+  payout            Float?
+  createdAt         DateTime       @default(now())
+  endedAt           DateTime?
+
+  @@map("mine_game")
+  @@index([userId, status])
 }
