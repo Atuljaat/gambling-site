@@ -9,6 +9,15 @@ import { cn } from "@/lib/utils";
 // Dummy Data
 const GAMES_DATA = [
     {
+        id: "mines",
+        title: "Mines",
+        category: "Originals",
+        image: "https://images.unsplash.com/photo-1599839619722-39751411ea63?q=80&w=2000&auto=format&fit=crop",
+        trending: true,
+        players: 1337,
+        multiplier: "1.00x",
+    },
+    {
         id: "eat-money",
         title: "I Just Want To Eat Your Money",
         category: "Originals",
