@@ -26,6 +26,15 @@ export function generateServerSecret(): string {
 }
 
 /**
+ * Hash a server secret for provable fairness display.
+ * @param serverSecret - The raw server secret string.
+ * @returns The SHA-256 hash of the server secret.
+ */
+export function hashServerSecret(serverSecret: string): string {
+  return createHash("sha256").update(serverSecret).digest("hex");
+}
+
+/**
  * Deterministically generate mine positions on a 5×5 board.
  *
  * @param clientSecret - User-provided client seed

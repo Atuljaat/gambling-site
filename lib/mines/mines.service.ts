@@ -19,6 +19,7 @@ import { createTransaction, TransactionType } from "@/lib/transactions";
 import {
   generateMinePositions,
   generateServerSecret,
+  hashServerSecret,
 } from "./provably-fair";
 import {
   ValidationError,
@@ -54,6 +55,7 @@ function toGameResponse(
     payout: number | null;
     createdAt: Date;
     endedAt: Date | null;
+    serverSecret: { serverSecretHash: string };
   },
   includesMines: boolean
 ): GameResponse {
@@ -61,6 +63,7 @@ function toGameResponse(
     id: game.id,
     userId: game.userId,
     clientSecret: game.clientSecret,
+    serverSecretHash: game.serverSecret.serverSecretHash,
     ounce: game.ounce,
     betAmount: round2(game.betAmount),
     mineCount: game.mineCount,
@@ -105,6 +108,7 @@ export async function startOrLoadGame(
   // 1. Check for existing active game — early exit (js-early-exit)
   const existingGame = await prisma.mineGame.findFirst({
     where: { userId, status: "ACTIVE" },
+    include: { serverSecret: { select: { serverSecretHash: true } } },
   });
 
   if (existingGame) {
@@ -160,10 +164,12 @@ export async function startOrLoadGame(
     });
   } else {
     // No active secret → create one (ounce starts at 1)
+    const newRawSecret = generateServerSecret();
     secret = await prisma.serverSecret.create({
       data: {
         userId,
-        serverSecret: generateServerSecret(),
+        serverSecret: newRawSecret,
+        serverSecretHash: hashServerSecret(newRawSecret),
         status: "ACTIVE",
         currentOunce: 1,
       },
@@ -215,6 +221,7 @@ export async function startOrLoadGame(
   const createdGame = await prisma.mineGame.findFirst({
     where: { userId, status: "ACTIVE" },
     orderBy: { createdAt: "desc" },
+    include: { serverSecret: { select: { serverSecretHash: true } } },
   });
 
   if (!createdGame) {
@@ -280,6 +287,7 @@ export async function revealTile(
         payout: 0,
         endedAt: new Date(),
       },
+      include: { serverSecret: { select: { serverSecretHash: true } } },
     });
 
     // Reveal mine positions on bust
@@ -306,6 +314,7 @@ export async function revealTile(
           payout,
           endedAt: new Date(),
         },
+        include: { serverSecret: { select: { serverSecretHash: true } } },
       }),
       prisma.user.update({
         where: { id: userId },
@@ -331,6 +340,7 @@ export async function revealTile(
       revealedCells: newRevealed,
       currentMultiplier: newMultiplier,
     },
+    include: { serverSecret: { select: { serverSecretHash: true } } },
   });
 
   return toGameResponse(updatedGame, false);
@@ -374,6 +384,7 @@ export async function cashOut(
         payout,
         endedAt: new Date(),
       },
+      include: { serverSecret: { select: { serverSecretHash: true } } },
     }),
     prisma.user.update({
       where: { id: userId },
@@ -401,6 +412,7 @@ export async function getCurrentGame(
 ): Promise<GameResponse | null> {
   const game = await prisma.mineGame.findFirst({
     where: { userId, status: "ACTIVE" },
+    include: { serverSecret: { select: { serverSecretHash: true } } },
   });
 
   if (!game) return null;
@@ -443,21 +455,55 @@ export async function revealActiveSecret(
         revealedAt: new Date(),
       },
     }),
-    prisma.serverSecret.create({
-      data: {
-        userId,
-        serverSecret: generateServerSecret(),
-        status: "ACTIVE",
-        currentOunce: 1,
-      },
-    }),
+    (() => {
+      const newRawSecret = generateServerSecret();
+      return prisma.serverSecret.create({
+        data: {
+          userId,
+          serverSecret: newRawSecret,
+          serverSecretHash: hashServerSecret(newRawSecret),
+          status: "ACTIVE",
+          currentOunce: 1,
+        },
+      });
+    })(),
   ]);
 
   return {
     revealedSecret: secret.serverSecret,
+    serverSecretHash: secret.serverSecretHash,
     ounceAtReveal: secret.currentOunce,
     newActiveSecretCreated: true,
   };
+}
+
+/**
+ * Get the active server secret hash for pre-game provably fair display.
+ * Generates a new active secret if none exists.
+ */
+export async function getActiveSecretHash(
+  userId: string
+): Promise<{ serverSecretHash: string }> {
+  let secret = await prisma.serverSecret.findFirst({
+    where: { userId, status: "ACTIVE" },
+    select: { serverSecretHash: true },
+  });
+
+  if (!secret) {
+    const newRawSecret = generateServerSecret();
+    secret = await prisma.serverSecret.create({
+      data: {
+        userId,
+        serverSecret: newRawSecret,
+        serverSecretHash: hashServerSecret(newRawSecret),
+        status: "ACTIVE",
+        currentOunce: 1,
+      },
+      select: { serverSecretHash: true },
+    });
+  }
+
+  return { serverSecretHash: secret.serverSecretHash };
 }
 
 /**
@@ -477,6 +523,7 @@ export async function getGameHistory(
       orderBy: { createdAt: "desc" },
       take: Math.min(limit, 50),
       skip: offset,
+      include: { serverSecret: { select: { serverSecretHash: true } } },
     }),
     prisma.mineGame.count({
       where: {

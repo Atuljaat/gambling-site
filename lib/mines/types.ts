@@ -27,6 +27,7 @@ export interface GameResponse {
   id: string;
   userId: string;
   clientSecret: string;
+  serverSecretHash: string;
   ounce: number;
   betAmount: number;
   mineCount: number;
@@ -44,6 +45,7 @@ export interface GameResponse {
 
 export interface SecretRevealResponse {
   revealedSecret: string;
+  serverSecretHash: string;
   ounceAtReveal: number;
   newActiveSecretCreated: boolean;
 }

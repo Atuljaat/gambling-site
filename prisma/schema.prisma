@@ -103,15 +103,16 @@ model Transaction {
 }
 
 model ServerSecret {
-  id           String       @id @default(cuid())
-  userId       String
-  user         User         @relation(fields: [userId], references: [id], onDelete: Cascade)
-  serverSecret String
-  status       SecretStatus @default(ACTIVE)
-  currentOunce Int          @default(1)
-  createdAt    DateTime     @default(now())
-  revealedAt   DateTime?
-  mineGames    MineGame[]
+  id               String       @id @default(cuid())
+  userId           String
+  user             User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+  serverSecret     String
+  serverSecretHash String
+  status           SecretStatus @default(ACTIVE)
+  currentOunce     Int          @default(1)
+  createdAt        DateTime     @default(now())
+  revealedAt       DateTime?
+  mineGames        MineGame[]
 
   @@map("server_secret")
   @@index([userId, status])
