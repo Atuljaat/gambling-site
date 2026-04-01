@@ -15,7 +15,7 @@ export default function Navbar() {
                 {/* Brand */}
                 <Link
                     href="/"
-                    className="text-white font-black tracking-tighter hover:opacity-70 transition-opacity"
+                    className="text-white font-display font-black tracking-[0.2em] hover:opacity-70 transition-opacity"
                 >
                     GAMBLING
                 </Link>

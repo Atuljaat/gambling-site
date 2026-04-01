@@ -1,16 +1,23 @@
 import Navbar from "@/components/Navbar";
 import type { Metadata } from "next";
-import { Geist, Geist_Mono } from "next/font/google";
+import { Oxanium, Share_Tech_Mono, Syncopate } from "next/font/google";
 import "./globals.css";
 import { BalanceProvider } from "@/lib/context/BalanceContext";
 
-const geistSans = Geist({
-  variable: "--font-geist-sans",
+const primaryFont = Oxanium({
+  variable: "--font-sans",
   subsets: ["latin"],
 });
 
-const geistMono = Geist_Mono({
-  variable: "--font-geist-mono",
+const monoFont = Share_Tech_Mono({
+  weight: "400",
+  variable: "--font-mono",
+  subsets: ["latin"],
+});
+
+const displayFont = Syncopate({
+  weight: ["400", "700"],
+  variable: "--font-display",
   subsets: ["latin"],
 });
 
@@ -27,7 +34,7 @@ export default function RootLayout({
   return (
     <html lang="en">
       <body
-        className={`${geistSans.variable} ${geistMono.variable} antialiased`}
+        className={`${primaryFont.variable} ${monoFont.variable} ${displayFont.variable} antialiased`}
       >
         <BalanceProvider>
           <Navbar />

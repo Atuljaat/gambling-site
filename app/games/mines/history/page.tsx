@@ -67,14 +67,14 @@ export default function MinesHistoryPage() {
       <div className="max-w-4xl mx-auto">
         <header className="mb-12 flex justify-between items-end border-b border-zinc-900 pb-8">
           <div>
-            <h1 className="text-2xl md:text-3xl font-bold uppercase tracking-widest mb-2">
+            <h1 className="text-2xl md:text-3xl font-black font-display uppercase tracking-[0.2em] mb-2">
               Mines History
             </h1>
-            <p className="text-zinc-500 text-xs uppercase tracking-widest">
+            <p className="text-zinc-500 font-display text-[10px] uppercase tracking-widest">
               Review and verify your past games
             </p>
           </div>
-          <a href="/games/mines" className="text-xs text-green-500 hover:text-green-400 transition underline underline-offset-4">
+          <a href="/games/mines" className="text-[10px] font-black font-display uppercase tracking-widest text-green-500 hover:text-green-400 transition underline underline-offset-4">
             Back to Game
           </a>
         </header>
@@ -131,7 +131,7 @@ export default function MinesHistoryPage() {
                       <Button 
                         size="sm" 
                         variant="outline" 
-                        className="h-8 text-xs border-zinc-800 text-zinc-300 hover:bg-zinc-900 hover:text-white"
+                        className="h-8 text-[10px] font-display font-black uppercase tracking-widest border-zinc-800 text-zinc-300 hover:bg-zinc-900 hover:text-white rounded-none"
                         onClick={() => setVerifyModalData(game)}
                       >
                         Verify Hash

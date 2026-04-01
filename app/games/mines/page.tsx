@@ -307,7 +307,7 @@ export default function MinesGamePage() {
         {/* Bet/Cashout Button */}
         {isActive ? (
           <Button 
-            className="w-full h-14 bg-green-500 hover:bg-green-400 text-black font-black text-xl hover:scale-[1.02] transition-transform uppercase tracking-wider"
+            className="w-full h-14 bg-green-500 hover:bg-green-400 text-black font-black text-xl hover:scale-[1.02] transition-transform uppercase font-display tracking-[0.2em]"
             onClick={handleCashout}
             disabled={loading || gameState.revealedCells.length === 0}
           >
@@ -316,7 +316,7 @@ export default function MinesGamePage() {
         ) : (
           <Button 
              className={cn(
-               "w-full h-14 font-black text-xl transition-transform uppercase tracking-wider",
+               "w-full h-14 font-black text-xl transition-transform uppercase font-display tracking-[0.2em]",
                (globalBalance !== null && globalBalance <= 0) || loading
                  ? "bg-zinc-800 text-zinc-500 cursor-not-allowed hover:bg-zinc-800"
                  : "bg-green-500 hover:bg-green-400 text-black hover:scale-[1.02]"
@@ -427,13 +427,13 @@ export default function MinesGamePage() {
         <div className="absolute bottom-4 right-4 z-50 flex gap-2">
           <button 
             onClick={() => setShowVerifyModal(true)}
-            className="bg-zinc-900 hover:bg-zinc-800 border border-zinc-800 text-zinc-300 text-xs font-bold px-4 py-2 rounded-full transition shadow-lg flex items-center gap-2"
+            className="bg-zinc-900 hover:bg-zinc-800 border border-zinc-800 text-zinc-300 text-[10px] font-black px-5 py-2.5 rounded-none transition shadow-lg flex items-center gap-2 font-display uppercase tracking-widest hover:border-green-500/50"
           >
             Verify Liquidity
           </button>
           <a 
             href="/games/mines/history" 
-            className="bg-zinc-900 hover:bg-zinc-800 border border-zinc-800 text-zinc-300 text-xs font-bold px-4 py-2 rounded-full transition shadow-lg flex items-center gap-2"
+            className="bg-zinc-900 hover:bg-zinc-800 border border-zinc-800 text-zinc-300 text-[10px] font-black px-5 py-2.5 rounded-none transition shadow-lg flex items-center gap-2 font-display uppercase tracking-widest hover:border-white/30"
           >
             Match History
           </a>
