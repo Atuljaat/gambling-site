@@ -31,7 +31,7 @@ import {
   BOARD_SIZE,
   MIN_MINES,
   MAX_MINES,
-  MULTIPLIER_PER_REVEAL,
+  calculateMultiplier,
 } from "./types";
 import type { GameResponse, SecretRevealResponse } from "./types";
 import { round2 } from "./helpers";
@@ -301,7 +301,7 @@ export async function revealTile(
 
   // Safe reveal
   const newRevealed = [...revealedCells, position];
-  const newMultiplier = round2(game.currentMultiplier * MULTIPLIER_PER_REVEAL);
+  const newMultiplier = calculateMultiplier(newRevealed.length, game.mineCount);
   const totalSafeCells = BOARD_SIZE - game.mineCount;
 
   // Check if all safe cells are now revealed → auto cash-out

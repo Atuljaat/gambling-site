@@ -11,6 +11,7 @@ import { Gem, RefreshCw, Flame, Bomb } from "lucide-react";
 import { useUserStore } from "@/lib/store";
 import { cn } from "@/lib/utils";
 import { VerifyFairnessModal } from "@/components/mines/verify-fairness-modal";
+import { calculateMultiplier } from "@/lib/mines/types";
 // Actually, let's use a simple absolute alert or just standard UI state for errors if no toast is present
 
 // We'll define simple types
@@ -179,6 +180,11 @@ export default function MinesGamePage() {
   const isFinished = gameState?.status === "BUSTED" || gameState?.status === "CASHED_OUT";
   const currentProfit = isFinished && gameState.payout ? gameState.payout : (isActive ? gameState.betAmount * gameState.currentMultiplier - gameState.betAmount : 0);
   const displayMultiplier = gameState ? gameState.currentMultiplier : 1.00;
+  
+  // Next multiplier preview — what the player gets if the next tile is safe
+  const nextMultiplier = isActive 
+    ? calculateMultiplier((gameState?.revealedCells?.length || 0) + 1, gameState?.mineCount || parseInt(mineCount))
+    : calculateMultiplier(1, parseInt(mineCount));
   
   const handleHalfBet = () => setBetAmount(prev => (Math.max(0.01, parseFloat(prev) / 2)).toFixed(2));
   const handleDoubleBet = () => {
@@ -353,6 +359,11 @@ export default function MinesGamePage() {
           <div className="text-right">
              <div className="text-zinc-500 text-xs font-black uppercase tracking-widest mb-1">Multiplier</div>
              <div className="text-4xl font-black text-green-500 font-mono">{displayMultiplier.toFixed(2)}x</div>
+             {isActive && (
+               <div className="text-[10px] text-zinc-600 mt-1 uppercase tracking-widest">
+                 Next: <span className="text-zinc-400 font-bold">{nextMultiplier.toFixed(2)}x</span>
+               </div>
+             )}
           </div>
         </div>
 

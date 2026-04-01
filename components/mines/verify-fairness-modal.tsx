@@ -127,7 +127,7 @@ export function VerifyFairnessModal({
                   <label className="text-[10px] font-bold text-zinc-600 uppercase tracking-widest">Nonce</label>
                   <Input
                     type="number"
-                    value={nonce}
+                    value={isNaN(nonce) ? "" : nonce}
                     onChange={(e) => setNonce(parseInt(e.target.value))}
                     readOnly={readOnly}
                     className="bg-zinc-950 border-white/5 text-xs text-zinc-300 focus-visible:ring-1 focus-visible:ring-green-500/50 h-10 tracking-wider shadow-inner font-mono"
@@ -138,7 +138,7 @@ export function VerifyFairnessModal({
                   <label className="text-[10px] font-bold text-zinc-600 uppercase tracking-widest">Mines</label>
                   <Input
                     type="number"
-                    value={mineCount}
+                    value={isNaN(mineCount) ? "" : mineCount}
                     onChange={(e) => setMineCount(parseInt(e.target.value))}
                     readOnly={readOnly}
                     className="bg-zinc-950 border-white/5 text-xs text-zinc-300 focus-visible:ring-1 focus-visible:ring-green-500/50 h-10 tracking-wider shadow-inner font-mono"

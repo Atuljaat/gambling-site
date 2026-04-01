@@ -158,7 +158,7 @@ export default function MinesHistoryPage() {
       <VerifyFairnessModal
         open={!!verifyModalData}
         onOpenChange={(open) => !open && setVerifyModalData(null)}
-        readOnly={true}
+        readOnly={false}
         initialServerSecret={verifyModalData?.serverSecret || ""}
         initialClientSecret={verifyModalData?.clientSecret || ""}
         initialNonce={verifyModalData?.ounce || 0}
