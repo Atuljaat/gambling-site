@@ -10,6 +10,7 @@ import { Card, CardHeader, CardTitle, CardContent } from "@/components/ui/card";
 import { Gem, RefreshCw, Flame, Bomb } from "lucide-react";
 import { useUserStore } from "@/lib/store";
 import { cn } from "@/lib/utils";
+import { VerifyFairnessModal } from "@/components/mines/verify-fairness-modal";
 // Actually, let's use a simple absolute alert or just standard UI state for errors if no toast is present
 
 // We'll define simple types
@@ -22,6 +23,7 @@ interface GameState {
   betAmount: number;
   mineCount: number;
   payout?: number | null;
+  serverSecretHash: string;
 }
 
 export default function MinesGamePage() {
@@ -34,6 +36,8 @@ export default function MinesGamePage() {
   const [betAmount, setBetAmount] = useState<string>("10.00");
   const [mineCount, setMineCount] = useState<string>("3");
   const [clientSecret, setClientSecret] = useState<string>("7d9f2a4b8c1e0d3f");
+  const [serverSecretHash, setServerSecretHash] = useState<string | null>(null);
+  const [showVerifyModal, setShowVerifyModal] = useState(false);
 
   // Format currency
   const formatCurrency = (val: number) => `$${val.toFixed(2)}`;
@@ -47,6 +51,14 @@ export default function MinesGamePage() {
           const data = await res.json();
           if (data && data.status === "ACTIVE") {
             setGameState(data);
+            setServerSecretHash(data.serverSecretHash);
+          } else {
+            // Fetch active unrevealed server secret hash
+            const secretRes = await fetch("/api/mines/secret");
+            if (secretRes.ok) {
+              const secretData = await secretRes.json();
+              setServerSecretHash(secretData.serverSecretHash);
+            }
           }
         }
       } catch (err) {
@@ -94,6 +106,7 @@ export default function MinesGamePage() {
         alert(data.error || "Failed to start game");
       } else {
         setGameState(data);
+        setServerSecretHash(data.serverSecretHash);
         updateBalance(-bet);
         fetchBalance(); // Update navbar balance
       }
@@ -194,7 +207,7 @@ export default function MinesGamePage() {
   };
 
   return (
-    <div className="min-h-screen bg-black text-white flex flex-col md:flex-row pt-16">
+    <div className="h-screen pt-14 bg-black text-white flex flex-col md:flex-row overflow-hidden">
       
       {/* Sidebar Controls */}
       <div className="w-full md:w-[320px] bg-zinc-950 border-r border-zinc-800 p-4 flex flex-col gap-6 overflow-y-auto">
@@ -251,7 +264,7 @@ export default function MinesGamePage() {
         {/* Client Secret */}
         <div className="space-y-2">
            <div className="flex justify-between text-xs font-bold text-zinc-400">
-            <span>CLIENT SECRET</span>
+            <span>CLIENT SEED</span>
           </div>
           <div className="relative flex items-center bg-zinc-900 rounded border border-zinc-800 focus-within:border-zinc-600 transition">
             <Input 
@@ -270,6 +283,20 @@ export default function MinesGamePage() {
             </button>
           </div>
         </div>
+
+        {/* Server Seed Hash */}
+        <div className="space-y-2">
+           <div className="flex justify-between text-xs font-bold text-zinc-400">
+            <span>SERVER SEED HASH</span>
+          </div>
+          <div className="bg-zinc-900 rounded border border-zinc-800 px-3 py-2 text-xs font-mono text-zinc-400 break-all select-all flex items-center min-h-[42px]">
+             {serverSecretHash || "Loading..."}
+          </div>
+        </div>
+
+        <p className="text-[10px] text-zinc-500 leading-relaxed mt-1">
+           The board is generated from your client seed + our hidden server seed + a nonce. You can verify your game in match history after it ends.
+        </p>
 
         {/* Bet/Cashout Button */}
         {isActive ? (
@@ -312,7 +339,7 @@ export default function MinesGamePage() {
       </div>
 
       {/* Main Game Area */}
-      <div className="flex-1 flex flex-col items-center justify-center p-4 bg-[url('/bg-pattern.svg')] bg-repeat relative">
+      <div className="flex-1 flex flex-col items-center justify-center p-4 bg-[url('/bg-pattern.svg')] bg-repeat relative overflow-y-auto">
         <div className="absolute inset-0 opacity-10 pointer-events-none" style={{ backgroundImage: 'radial-gradient(circle at center, #22c55e 0%, transparent 70%)' }} />
         
         {/* Top Info Header */}
@@ -384,6 +411,28 @@ export default function MinesGamePage() {
            <div className="w-4 h-4 rounded-full bg-zinc-800 flex items-center justify-center text-[10px]">i</div>
            <span>Select tiles to reveal gems. Avoid the hidden mines!</span>
         </div>
+
+        {/* History & Verify Buttons (Bottom Right) */}
+        <div className="absolute bottom-4 right-4 z-50 flex gap-2">
+          <button 
+            onClick={() => setShowVerifyModal(true)}
+            className="bg-zinc-900 hover:bg-zinc-800 border border-zinc-800 text-zinc-300 text-xs font-bold px-4 py-2 rounded-full transition shadow-lg flex items-center gap-2"
+          >
+            Verify Liquidity
+          </button>
+          <a 
+            href="/games/mines/history" 
+            className="bg-zinc-900 hover:bg-zinc-800 border border-zinc-800 text-zinc-300 text-xs font-bold px-4 py-2 rounded-full transition shadow-lg flex items-center gap-2"
+          >
+            Match History
+          </a>
+        </div>
+
+        <VerifyFairnessModal
+          open={showVerifyModal}
+          onOpenChange={setShowVerifyModal}
+          readOnly={false}
+        />
       </div>
     </div>
   );

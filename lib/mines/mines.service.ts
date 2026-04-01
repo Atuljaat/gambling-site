@@ -55,7 +55,7 @@ function toGameResponse(
     payout: number | null;
     createdAt: Date;
     endedAt: Date | null;
-    serverSecret: { serverSecretHash: string };
+    serverSecret: { serverSecretHash: string; serverSecret?: string; status?: string };
   },
   includesMines: boolean
 ): GameResponse {
@@ -78,6 +78,11 @@ function toGameResponse(
 
   if (includesMines) {
     resp.minePositions = game.minePositions as number[];
+  }
+
+  // Include serverSecret ONLY if it's explicitly explicitly fetched AND revealed
+  if (game.serverSecret.status === "REVEALED" && game.serverSecret.serverSecret) {
+    resp.serverSecret = game.serverSecret.serverSecret;
   }
 
   return resp;
@@ -523,7 +528,7 @@ export async function getGameHistory(
       orderBy: { createdAt: "desc" },
       take: Math.min(limit, 50),
       skip: offset,
-      include: { serverSecret: { select: { serverSecretHash: true } } },
+      include: { serverSecret: { select: { serverSecretHash: true, serverSecret: true, status: true } } },
     }),
     prisma.mineGame.count({
       where: {

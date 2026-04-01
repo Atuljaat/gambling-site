@@ -38,9 +38,11 @@ export interface GameResponse {
   createdAt: Date;
   endedAt: Date | null;
   /** Only present when game is finished (BUSTED or CASHED_OUT) */
-  minePositions?: number[];
+   minePositions?: number[];
   /** Total safe cells on the board */
   totalSafeCells: number;
+  /** Only present if the server secret has been revealed */
+  serverSecret?: string;
 }
 
 export interface SecretRevealResponse {

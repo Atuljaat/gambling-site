@@ -17,7 +17,7 @@ export default async function TransactionsPage() {
     return (
         <div className="min-h-screen bg-black text-white pt-24 px-4 pb-12 font-mono selection:bg-white selection:text-black">
             <div className="max-w-4xl mx-auto">
-                <header className="mb-12 flex justify-between items-end border-b border-zinc-900 pb-8">
+                <header className="mb-12 flex flex-col sm:flex-row justify-between sm:items-end border-b border-zinc-900 pb-8 gap-4">
                     <div>
                         <h1 className="text-2xl md:text-3xl font-bold uppercase tracking-widest mb-2">
                             Transaction History
