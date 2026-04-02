@@ -4,10 +4,16 @@ import Link from "next/link";
 import { authClient } from "@/lib/auth-client";
 import { useRouter } from "next/navigation";
 import UserBalance from "./UserBalance";
+import { useState, useEffect } from "react";
 
 export default function Navbar() {
-    const { data: session } = authClient.useSession();
+    const { data: session, isPending } = authClient.useSession();
     const router = useRouter();
+    const [mounted, setMounted] = useState(false);
+
+    useEffect(() => {
+        setMounted(true);
+    }, []);
 
     return (
         <nav className="fixed top-0 w-full z-50 border-b border-white/10 bg-black/80 backdrop-blur-md">
@@ -32,7 +38,9 @@ export default function Navbar() {
                         buy
                     </Link>
                     <div className="h-4 w-px bg-zinc-800 hidden sm:block"></div>
-                    {!session ? (
+                    {(!mounted || isPending) ? (
+                        <div className="w-24 px-3 py-1 animate-pulse bg-white/5 h-6 rounded"></div>
+                    ) : !session ? (
                         <>
                             <Link href="/login" className="hover:text-white transition-colors">
                                 Login

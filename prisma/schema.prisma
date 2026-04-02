@@ -138,4 +138,9 @@ model MineGame {
 
   @@map("mine_game")
   @@index([userId, status])
+  // schema-foreign-key-indexes: Postgres does NOT auto-index FK columns.
+  // Without this, a join from ServerSecret → MineGame (e.g. history include)
+  // would do a full sequential scan of the mine_game table.
+  @@index([serverSecretId])
 }
+

